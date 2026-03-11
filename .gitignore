@@ -1,0 +1,64 @@
+# Local .terraform directories
+**/.terraform/*
+
+# Terraform lockfile (optional - some teams commit this)
+# .terraform.lock.hcl
+
+# Terraform state files
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# Terraform plan files
+*.tfplan
+tfplan
+
+# Crash log files
+crash.log
+crash.*.log
+
+# Exclude override files as they are usually site-specific
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Ignore CLI configuration files
+.terraformrc
+terraform.rc
+
+# Terraform variable files that may contain secrets
+*.tfvars
+*.tfvars.json
+
+# AWS credentials and config
+.aws/
+
+# SSH keys
+*.pem
+*.key
+id_rsa
+id_rsa.pub
+
+# Environment variable files
+.env
+.env.*
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor directories and files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.bak
