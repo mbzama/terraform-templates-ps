@@ -8,6 +8,51 @@ This directory contains Terraform configuration files to create an AWS EKS clust
 - [AWS CLI](https://aws.amazon.com/cli/) configured with credentials
 - [kubectl](https://kubernetes.io/docs/tasks/tools/) installed
 
+## Quick Start Scripts
+
+Two helper scripts are provided to automate common workflows. Use the right one for your situation:
+
+### `create.sh` — First-time deployment
+
+Use this when you are starting **from scratch** with no existing Terraform state or AWS resources.
+
+```bash
+./create.sh
+```
+
+What it does:
+1. `terraform init` — downloads providers and initializes the backend
+2. `terraform plan` — shows what will be created
+3. `terraform apply -auto-approve` — provisions all resources
+
+**When to use:**
+- First time running this project in a new environment
+- After deleting `.terraform/` and all state files for a clean restart
+- Switching to a different AWS account/region
+
+---
+
+### `recreate.sh` — Re-deploy after state drift or partial failure
+
+Use this when resources already exist (or partially exist) in AWS but the Terraform state is **out of sync**, and you want to re-apply without a full destroy.
+
+```bash
+./recreate.sh
+```
+
+What it does:
+1. Runs `cleanup.sh` — removes specific resources from Terraform state (EKS cluster, node group, Secrets Manager secrets) without deleting the actual AWS resources
+2. `terraform apply -auto-approve` — re-registers and re-applies those resources
+
+**When to use:**
+- Resources exist in AWS but Terraform errors like `AlreadyExistsException` or `AccessDeniedException` on secrets from a previous account
+- EKS cluster or node group was created outside Terraform (e.g. eksctl) and you want Terraform to manage it going forward
+- A previous `create.sh` run failed mid-way and state is partially stale
+
+> **Note:** `recreate.sh` does **not** run `terraform init`. If you've never initialized in the current directory, run `terraform init` or `create.sh` first.
+
+---
+
 ## Architecture
 
 This Terraform configuration creates:
@@ -20,19 +65,81 @@ This Terraform configuration creates:
 - **Security Groups** with proper configurations
 - **NAT Gateways** for private subnet internet access
 
+### Network Diagram
+
+```mermaid
+flowchart TB
+    Internet(["Internet\n0.0.0.0/0"])
+
+    subgraph AWS["AWS  ·  us-east-1"]
+        subgraph VPC["VPC: hrms-cluster-vpc  (10.0.0.0/16)"]
+
+            IGW["Internet Gateway\nhrms-cluster-igw"]
+
+            subgraph AZ1["us-east-1a"]
+                subgraph PubSub1["Public Subnet  10.0.0.0/24"]
+                    NAT1["NAT Gateway 1  +  Elastic IP"]
+                end
+                subgraph PrivSub1["Private Subnet  10.0.2.0/24"]
+                    Node["Worker Node\nt3.medium · 20 GB EBS\nhrms-ng-2 node group"]
+                end
+            end
+
+            subgraph AZ2["us-east-1b"]
+                subgraph PubSub2["Public Subnet  10.0.1.0/24"]
+                    NAT2["NAT Gateway 2  +  Elastic IP"]
+                end
+                subgraph PrivSub2["Private Subnet  10.0.3.0/24"]
+                    Note["scale-out nodes\nland here"]
+                end
+            end
+
+            subgraph DBSubnet["RDS DB Subnet Group  (public subnets)"]
+                RDS[("RDS PostgreSQL 16\nhrms-cluster-db  ·  db.t3.micro\nSingle-AZ  ·  20 GB gp2\nport 5432")]
+            end
+
+            EKS["EKS Control Plane\nhrms-cluster  ·  k8s v1.31\nPublic + Private Endpoint\nAddons: vpc-cni · coredns · kube-proxy"]
+        end
+
+        SM["Secrets Manager\nhrms-cluster-rds-credentials"]
+    end
+
+    Internet   <-->|"HTTPS 443"| IGW
+    Internet   <-->|"port 5432  (publicly_accessible=true)"| RDS
+    IGW        <-->|"0.0.0.0/0 route"| PubSub1
+    IGW        <-->|"0.0.0.0/0 route"| PubSub2
+    IGW        <-->|"EKS public API endpoint"| EKS
+    NAT1        -->|"outbound internet\nfor private subnet"| PrivSub1
+    NAT2        -->|"outbound internet\nfor private subnet"| PrivSub2
+    Node       <-->|"private API endpoint"| EKS
+    Node       <-->|"port 5432  (cluster SG)"| RDS
+    Node       -.->|"GetSecretValue"| SM
+    RDS        -.->|"credentials stored in"| SM
+```
+
+> **Security note:** RDS is placed in public subnets with `publicly_accessible = true` and SG port 5432 open to `0.0.0.0/0`. This is intentional for this dev/learning environment. Lock down the security group and set `publicly_accessible = false` before using in production.
+
 ## File Structure
 
 ```
-terraform/
+eks-rds-postgres/
 ├── provider.tf          # Terraform and AWS provider configuration
-├── variables.tf         # Variable definitions
+├── variables.tf         # Variable definitions (EKS)
+├── rds-variables.tf     # Variable definitions (RDS)
 ├── terraform.tfvars     # Variable values
-├── vpc.tf              # VPC, subnets, NAT gateways, route tables
-├── eks-cluster.tf      # EKS cluster and IAM roles
-├── eks-node-group.tf   # Managed node group configuration
-├── eks-addons.tf       # EKS addons (vpc-cni, coredns, kube-proxy)
-├── outputs.tf          # Output values
-└── README.md           # This file
+├── vpc.tf               # VPC, subnets, NAT gateways, route tables
+├── eks-cluster.tf       # EKS cluster and IAM roles
+├── eks-node-group.tf    # Managed node group configuration
+├── eks-addons.tf        # EKS addons (vpc-cni, coredns, kube-proxy)
+├── rds.tf               # RDS instance, security group, subnet group
+├── rds-secrets.tf       # AWS Secrets Manager for DB credentials
+├── outputs.tf           # Output values
+├── create.sh            # First-time deployment script
+├── recreate.sh          # Re-deploy after state drift
+├── cleanup.sh           # Remove stale state entries
+├── .gitignore           # Git ignore rules
+├── README.md            # This file (EKS documentation)
+└── RDS-README.md        # RDS-specific documentation
 ```
 
 ## Configuration

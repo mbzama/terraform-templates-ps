@@ -1,3 +1,3 @@
-terraform init
-terraform plan
+./cleanup.sh
+
 terraform apply -auto-approve
